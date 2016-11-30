@@ -2,4 +2,8 @@
     <string name="app_name">Intro to PubNub Android SDK v4</string>
     <string name="edit_message">Enter a message</string>
     <string name="button_send">Send</string>
+    <string name="button_profile">Profile</string>
+    <string name="button_buddies">Buddies</string>
+    <string name="toggle_active">Leave</string>
+    <string name="toggle_inactive">Join</string>
 </resources>
