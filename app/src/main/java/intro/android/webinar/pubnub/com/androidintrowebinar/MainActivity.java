@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -47,6 +48,10 @@ public class MainActivity extends AppCompatActivity {
     final static public String TAG = "MainActivity";
     final static public String APP_PREFS = "app-prefs";
     final static public String CHANNEL = "intro-webinar";
+
+    private final static int ACTION_REMOVE = -1;
+    private final static int ACTION_UPDATE = 0;
+    private final static int ACTION_ADD = 1;
 
     private PubNub pubnub;
 
@@ -89,65 +94,89 @@ public class MainActivity extends AppCompatActivity {
         addPubNubListener();
     }
 
-    private void initBuddiesListView() {
-        buddiesListAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1, buddiesListItems) {
-            @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                View view = super.getView(position, convertView, parent);
-                TextView text1 = (TextView) view.findViewById(android.R.id.text1);
-                TextView text2 = (TextView) view.findViewById(android.R.id.text2);
-
-                UserProfile item = buddiesListItems.get(position);
-                text1.setGravity(Gravity.RIGHT);
-                text2.setGravity(Gravity.RIGHT);
-                text1.setText(item.getUuid());
-                text2.setText(item.getLocation());
-
-                return view;
-            }
-        };
-        buddiesListView.setAdapter(buddiesListAdapter);
+    // init the PubNub object
+    public void initPubNub() {
+        if (pubnub == null) {
+            PNConfiguration pnConfiguration = new PNConfiguration();
+            pnConfiguration.setSubscribeKey("demo-36");
+            pnConfiguration.setPublishKey("demo-36");
+            pnConfiguration.setSecure(false);
+            configurePubnubUUID(pnConfiguration);
+            pubnub = new PubNub(pnConfiguration);
+        }
     }
 
-    private void initMessagesListView() {
-        messagesListAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1, messagesListItems) {
+    public void addPubNubListener() {
+        pubnub.addListener(new SubscribeCallback() {
+            // MESSAGES
             @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                View view = super.getView(position, convertView, parent);
-                TextView text1 = (TextView) view.findViewById(android.R.id.text1);
-                TextView text2 = (TextView) view.findViewById(android.R.id.text2);
-
-                ChatMessage item = messagesListItems.get(position);
-                JsonNode senderNode = item.getMessage().get("sender");
-
-                text1.setText(item.getMessage().get("text").asText());
-
-                // my messages are blue
-                if (senderNode.asText().equals(pubnub.getConfiguration().getUuid()))
-                    text1.setTextColor(Color.BLUE);
-                    // everyone elses' are red
-                else
-                    text1.setTextColor(Color.RED);
-
-                String when = getFormattedDateTime(new java.util.Date(
-                        (long) item.getPublishTT() / 10000)).toString();
-
-                text2.setGravity(Gravity.RIGHT);
-
-                if (senderNode != null)
-                    text2.setText(senderNode.asText() + "\n" + when);
-                else
-                    text2.setText("anonymous @ " + when);
-
-                return view;
+            public void message(PubNub pubnub, PNMessageResult message) {
+                Log.v(TAG, message.getMessage().toString());
+                addMessage(new ChatMessage(message.getMessage(), message.getTimetoken()));
             }
-        };
-        messagesListView.setAdapter(messagesListAdapter);
-    }
 
-    private String getFormattedDateTime(Date date) {
-        android.text.format.DateFormat df = new android.text.format.DateFormat();
-        return df.format("MM-dd hh:mm:ss", date).toString();
+            // STATUS EVENTS
+            @Override
+            public void status(PubNub pubnub, PNStatus status) {
+                Log.v(TAG, status.getCategory().toString());
+
+                if (status.getCategory() == PNStatusCategory.PNConnectedCategory) {
+                    showToast("You have joined");
+                    fetchHistory();
+                    fetchBuddies();
+                    updateBuddyList(ACTION_ADD, profile.getUuid(), profile);
+                } else if (status.getCategory() == PNStatusCategory.PNUnexpectedDisconnectCategory) {
+                    showToast("Internet connectivity has been lost.");
+                } else if (status.getCategory() == PNStatusCategory.PNReconnectedCategory) {
+                    showToast("You have rejoined the chat room.");
+                    fetchBuddies();
+                    fetchHistory();
+                }
+            }
+
+            // PRESENCE EVENTS
+            @Override
+            public void presence(PubNub pubnub, PNPresenceEventResult presence) {
+                Log.d(TAG, "begin presence: " + presence.getEvent() + ", " + presence.getUuid());
+
+                String action = presence.getEvent();
+                String uuid = presence.getUuid();
+                String channel = presence.getChannel();
+
+                // JOIN event
+                if (action.equalsIgnoreCase("join")) {
+                    if (!uuid.equalsIgnoreCase(pubnub.getConfiguration().getUuid())) {
+                        showToast(uuid + " has joined");
+                    }
+
+//                    UserProfile buddy = new UserProfile(uuid, (JsonNode) presence.getState());
+//                    addBuddy(buddy);
+
+                    try {
+                        pubnub.setPresenceState().channels(Arrays.asList(CHANNEL))
+                                .state((JsonNode) createState()).sync();
+                    } catch (PubNubException e) {
+                        e.printStackTrace();
+                    }
+                }
+                // LEAVE or TIMEOUT event
+                else if (action.equalsIgnoreCase("leave") || action.equalsIgnoreCase("timeout")) {
+                    showToast(uuid + " has left");
+
+                    updateBuddyList(ACTION_REMOVE, uuid, null);
+                }
+                // STATE CHANGE event
+                else if (action.equalsIgnoreCase("state-change")) {
+                    // update state of buddy in list
+                    UserProfile buddy = new UserProfile(uuid, presence.getState());
+                    updateBuddyList(ACTION_UPDATE, uuid, buddy);
+                } else {
+                    // interval mode; occupancy exceeded max announce
+                    // can use join/leave delta if enabled
+                    // Andvanced Feature
+                }
+            }
+        });
     }
 
     /** Called when the user clicks the Send button */
@@ -170,29 +199,21 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-    public void toggleActiveStatus(View v) {
-        if (activeStatusToggle.isChecked()) {
-            joinChat();
-        } else {
-            leaveChat();
-        }
+    private ObjectNode createMessage(String message) {
+        JsonNodeFactory factory = JsonNodeFactory.instance;
+        ObjectNode payload = factory.objectNode();
+        payload.put("text", message);
+        payload.put("sender", pubnub.getConfiguration().getUuid());
+
+        return payload;
     }
 
-    //    private void addMessage(final PNMessageResult payload) {
-    private void addBuddy(final UserProfile buddy) {
+    private void clearMessages() {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                buddiesListItems.add(buddy);
-                buddiesListAdapter.notifyDataSetChanged();
-
-                // Select the last row so it will scroll into view
-                buddiesListView.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        buddiesListView.setSelection(buddiesListAdapter.getCount() - 1);
-                    }
-                });
+                messagesListItems.clear();
+                messagesListAdapter.notifyDataSetChanged();
             }
         });
     }
@@ -216,158 +237,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void clearBuddies() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                buddiesListItems.clear();
-                buddiesListAdapter.notifyDataSetChanged();
-            }
-        });
-    }
-
-    private void clearMessages() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                messagesListItems.clear();
-                messagesListAdapter.notifyDataSetChanged();
-            }
-        });
-    }
-
-    private ObjectNode createState() {
-        JsonNodeFactory factory = JsonNodeFactory.instance;
-        ObjectNode payload = factory.objectNode();
-
-        if (profile != null) {
-            payload.put("location", profile.getLocation());
-            payload.put("fullname", profile.getFullname());
-            payload.put("language", profile.getLanguage());
-        }
-
-        return payload;
-    }
-
-    private ObjectNode createMessage(String message) {
-        JsonNodeFactory factory = JsonNodeFactory.instance;
-        ObjectNode payload = factory.objectNode();
-        payload.put("text", message);
-        payload.put("sender", pubnub.getConfiguration().getUuid());
-
-        return payload;
-    }
-
-    // init the PubNub object
-    public void initPubNub() {
-        if (pubnub == null) {
-            PNConfiguration pnConfiguration = new PNConfiguration();
-            pnConfiguration.setSubscribeKey("demo-36");
-            pnConfiguration.setPublishKey("demo-36");
-            pnConfiguration.setSecure(false);
-            configurePubnubUUID(pnConfiguration);
-            pubnub = new PubNub(pnConfiguration);
-        }
-    }
-
-    private void configurePubnubUUID(PNConfiguration pnconfig) {
-        SharedPreferences sharedPrefs = getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE);
-
-        // get the current pn_uuid value (first time, it will be null)
-        String uuid = sharedPrefs.getString("pubnub-uuid", null);
-
-        // if uuid hasn’t been created/ persisted, then create
-        // and persist to use for subsequent app loads/connections
-        if (uuid == null || uuid.length() == 0) {
-            // generate a UUID or use your own custom uuid, if required
-            uuid = UUID.randomUUID().toString();
-            sharedPrefs.edit().putString("pubnub-uuid", uuid);
-
-//            profile = new UserProfile();
-//            profile.setUuid(uuid);
-//            profile.setFullname("Anonymous");
-//            profile.setLanguage("en");
-//            profile.setLocation("Somewhere");
-
-            sharedPrefs.edit().putString("pubnub-location", profile.getLocation());
-            sharedPrefs.edit().putString("pubnub-language", profile.getLanguage());
-            sharedPrefs.edit().putString("pubnub-fullname", profile.getFullname());
-            sharedPrefs.edit().commit();
-        }
-
-//        profile = new UserProfile();
-//        profile.setUuid(uuid);
-//        profile.setFullname(sharedPrefs.getString("pubnub-fullname", "Anonymous"));
-//        profile.setLanguage(sharedPrefs.getString("pubnub-fullname", "en"));
-//        profile.setLocation(sharedPrefs.getString("pubnub-fullname", "Somewhere"));
-
-        pnconfig.setUuid(uuid);
-    }
-
-    public void addPubNubListener() {
-        pubnub.addListener(new SubscribeCallback() {
-            @Override
-            public void status(PubNub pubnub, PNStatus status) {
-                Log.v(TAG, status.getCategory().toString());
-
-                if (status.getCategory() == PNStatusCategory.PNConnectedCategory) {
-                    // doing this in join event
-                    // showToast("You have joined the chat room.");
-                    showToast("You have joined");
-                    fetchHistory();
-                    fetchBuddies();
-                } else if (status.getCategory() == PNStatusCategory.PNUnexpectedDisconnectCategory) {
-                    showToast("Internet connectivity has been lost.");
-                }
-                else if (status.getCategory() == PNStatusCategory.PNReconnectedCategory) {
-                    showToast("You have rejoined the chat room.");
-                    fetchBuddies();
-                    fetchHistory();
-                }
-            }
-
-            @Override
-            public void message(PubNub pubnub, PNMessageResult message) {
-                Log.v(TAG, message.getMessage().toString());
-                addMessage(new ChatMessage(message.getMessage(), message.getTimetoken()));
-            }
-
-            @Override
-            public void presence(PubNub pubnub, PNPresenceEventResult presence) {
-                Log.v(TAG, presence.toString());
-
-                String action = presence.getEvent();
-                String uuid = presence.getUuid();
-                String channel = presence.getChannel();
-
-                if (action.equalsIgnoreCase("join")) {
-                    if (!uuid.equalsIgnoreCase(pubnub.getConfiguration().getUuid())) {
-                        showToast(uuid + " has joined");
-                    }
-
-                    UserProfile buddy = new UserProfile(uuid, (JsonNode) presence.getState());
-//                    addBuddy(buddy);
-
-                    try {
-                        pubnub.setPresenceState().channels(Arrays.asList(CHANNEL))
-                                .state((JsonNode) createState()).sync();
-                    } catch (PubNubException e) {
-                        e.printStackTrace();
-                    }
-                } else if (action.equalsIgnoreCase("leave") || action.equalsIgnoreCase("timeout")) {
-                    showToast(uuid + " has left");
-                } else if (action.equalsIgnoreCase("state-change")) {
-                    // update state of buddy in list
-                    UserProfile buddy = new UserProfile(uuid, presence.getState());
-                    addBuddy(buddy);
-                } else {
-                    // interval mode; occupancy exceeded max announce
-                    // can use join/leave delta if enabled
-                }
-            }
-        });
-    }
-
     private void fetchHistory() {
         pubnub.history().channel(CHANNEL).includeTimetoken(true).async(new PNCallback<PNHistoryResult>() {
             @Override
@@ -383,8 +252,56 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void updateBuddyList(final int action, final String uuid, final UserProfile buddy) {
+        Log.d(TAG, "begin updateBuddyList: " + uuid);
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                UserProfile tbuddy = null;
+                int pos = -1;
+
+                for (int i = 0; i < buddiesListItems.size(); i++) {
+                    UserProfile curbuddy = buddiesListItems.get(i);
+
+                    if (curbuddy != null && curbuddy.getUuid().equals(uuid)) {
+                        tbuddy = curbuddy;
+                        pos = i;
+                        break;
+                    }
+                }
+
+                // remove buddy from buddy list
+                if (action == ACTION_REMOVE) {
+                    buddiesListItems.remove(pos);
+                } else if (action == ACTION_ADD) {
+                    buddiesListItems.add(buddy);
+                } else {
+                    if (tbuddy == null) {
+                        // buddy was not found in current buddy list, so add to list
+                        buddiesListItems.add(buddy);
+                    } else {
+                        // buddy was already found in the list so just update the element in place
+                        buddiesListItems.set(pos, buddy);
+                    }
+                }
+
+                buddiesListAdapter.notifyDataSetChanged();
+
+                // Select the last row so it will scroll into view
+                buddiesListView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        buddiesListView.setSelection(buddiesListAdapter.getCount() - 1);
+                    }
+                });
+            }
+        });
+    }
 
     private void fetchBuddies() {
+        Log.d(TAG, "begin fetchBuddies");
+
         pubnub.hereNow().channels(Arrays.asList(CHANNEL)).includeUUIDs(true).includeState(true).async(
                 new PNCallback<PNHereNowResult>() {
                     @Override
@@ -392,7 +309,7 @@ public class MainActivity extends AppCompatActivity {
 //                    clearBuddies();
 
                         if (status.isError()) {
-                            // handle error
+                            Log.e(TAG, "ERROR: " + status.getErrorData());
                             return;
                         }
 
@@ -403,14 +320,34 @@ public class MainActivity extends AppCompatActivity {
                             System.out.println("occupants:");
 
                             for (PNHereNowOccupantData occupant : channelData.getOccupants()) {
-                                System.out.println("uuid: " + occupant.getUuid() + " state: " + occupant.getState());
-//                            addBuddy(occupant);
-                                //!!! state is a LinkedHashMap not JsonNode ????
-                                addBuddy(new UserProfile(occupant.getUuid(), (JsonNode) occupant.getState()));
+                                Log.d(TAG, "uuid: " + occupant.getUuid() + " state: " + occupant.getState());
+
+                                if (!occupant.getUuid().equals(pubnub.getConfiguration().getUuid())) {
+                                    updateBuddyList(ACTION_ADD, occupant.getUuid(),
+                                            new UserProfile(occupant.getUuid(), (LinkedHashMap) occupant.getState()));
+                                }
                             }
                         }
                     }
                 });
+    }
+
+    private void clearBuddies() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                buddiesListItems.clear();
+                buddiesListAdapter.notifyDataSetChanged();
+            }
+        });
+    }
+
+    public void toggleActiveStatus(View v) {
+        if (activeStatusToggle.isChecked()) {
+            joinChat();
+        } else {
+            leaveChat();
+        }
     }
 
     private void joinChat() {
@@ -434,145 +371,228 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private ObjectNode createState() {
+        JsonNodeFactory factory = JsonNodeFactory.instance;
+        ObjectNode payload = factory.objectNode();
+
+        if (profile != null) {
+            payload.put("location", profile.getLocation());
+            payload.put("fullname", profile.getFullname());
+            payload.put("language", profile.getLanguage());
+        }
+
+        return payload;
+    }
+
+    private void configurePubnubUUID(PNConfiguration pnconfig) {
+        SharedPreferences sharedPrefs = getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE);
+
+        // get the current pn_uuid value (first time, it will be null)
+        String uuid = sharedPrefs.getString("pubnub-uuid", null);
+
+        // if uuid hasn’t been created/ persisted, then create
+        // and persist to use for subsequent app loads/connections
+        if (uuid == null || uuid.length() == 0) {
+            // generate a UUID or use your own custom uuid, if required
+            uuid = UUID.randomUUID().toString();
+            sharedPrefs.edit().putString("pubnub-uuid", uuid);
+            sharedPrefs.edit().putString("pubnub-location", profile == null ? UserProfile.DEFAULT_LOCATION : profile.getLocation());
+            sharedPrefs.edit().putString("pubnub-language", profile == null ? UserProfile.DEFAULT_LANGUAGE : profile.getLanguage());
+            sharedPrefs.edit().putString("pubnub-fullname", profile == null ? UserProfile.DEFAULT_FULLNAME : profile.getFullname());
+            sharedPrefs.edit().commit();
+        }
+
+        profile = new UserProfile();
+        profile.setUuid(uuid);
+        profile.setFullname(sharedPrefs.getString("pubnub-fullname", UserProfile.DEFAULT_FULLNAME));
+        profile.setLanguage(sharedPrefs.getString("pubnub-language", UserProfile.DEFAULT_LANGUAGE));
+        profile.setLocation(sharedPrefs.getString("pubnub-location", UserProfile.DEFAULT_LOCATION));
+
+        pnconfig.setUuid(uuid);
+    }
+
+    private String getFormattedDateTime(Date date) {
+        android.text.format.DateFormat df = new android.text.format.DateFormat();
+        return df.format("MM-dd hh:mm:ss", date).toString();
+    }
+
+    private void initBuddiesListView() {
+        buddiesListAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1, buddiesListItems) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                TextView text1 = (TextView) view.findViewById(android.R.id.text1);
+                TextView text2 = (TextView) view.findViewById(android.R.id.text2);
+
+                UserProfile item = buddiesListItems.get(position);
+                text1.setGravity(Gravity.RIGHT);
+                text2.setGravity(Gravity.RIGHT);
+
+                String name = item.getFullname();
+                String uuid = item.getUuid();
+
+                if (name != null && name.equals("anon") && uuid != null) {
+                    int length = uuid.length() > 12 ? 12 : uuid.length();
+                    Log.d(TAG, "*** length: " + length);
+                    name = item.getUuid().substring(0, length);
+                }
+
+                text1.setText(name);
+                text2.setText(item.getLocation());
+
+                return view;
+            }
+        };
+
+        buddiesListView.setAdapter(buddiesListAdapter);
+    }
+
+    private void initMessagesListView() {
+        messagesListAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1, messagesListItems) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                TextView text1 = (TextView) view.findViewById(android.R.id.text1);
+                TextView text2 = (TextView) view.findViewById(android.R.id.text2);
+
+                ChatMessage item = messagesListItems.get(position);
+                JsonNode senderNode = item.getMessage().get("sender");
+
+                if (item.getMessage().get("text") != null) {
+                    text1.setText(item.getMessage().get("text").asText());
+
+                    // my messages are blue
+                    if (senderNode.asText().equals(pubnub.getConfiguration().getUuid()))
+                        text1.setTextColor(Color.BLUE);
+                        // everyone elses' are red
+                    else
+                        text1.setTextColor(Color.RED);
+
+                    String when = getFormattedDateTime(new java.util.Date(
+                            (long) item.getPublishTT() / 10000)).toString();
+
+                    text2.setGravity(Gravity.RIGHT);
+
+                    if (senderNode != null)
+                        text2.setText(senderNode.asText() + "\n" + when);
+                    else
+                        text2.setText("unknown \n" + when);
+                }
+
+                return view;
+            }
+        };
+
+        messagesListView.setAdapter(messagesListAdapter);
+    }
+
     class ChatMessage {
         private JsonNode message;
         private Long publishTT;
 
-        public ChatMessage(JsonNode message, Long timetoken) {
+        ChatMessage(JsonNode message, Long timetoken) {
             this.setMessage(message);
             this.setPublishTT(timetoken);
         }
 
-        public JsonNode getMessage() {
+        JsonNode getMessage() {
             return message;
         }
 
-        public void setMessage(JsonNode message) {
+        void setMessage(JsonNode message) {
             this.message = message;
         }
 
-        public Long getPublishTT() {
+        Long getPublishTT() {
             return publishTT;
         }
 
-        public void setPublishTT(Long publishTT) {
+        void setPublishTT(Long publishTT) {
             this.publishTT = publishTT;
         }
     }
 
     class UserProfile {
+        public static final String DEFAULT_LOCATION = "unknown";
+        public static final String DEFAULT_FULLNAME = "anon";
+        public static final String DEFAULT_LANGUAGE = "en";
+
         private String fullname;
         private String uuid;
         private String location;
         private String language;
 
-        public UserProfile() {
+        UserProfile() {
         }
 
-        public UserProfile(String uuid, JsonNode state) {
+        UserProfile(String uuid, LinkedHashMap state) {
+            JsonNodeFactory factory = JsonNodeFactory.instance;
+            ObjectNode payload = factory.objectNode();
+
+            this.uuid = uuid;
+
+            if (state != null) {
+                this.location = state.get("location") == null ? DEFAULT_LOCATION : state.get("location").toString();
+                this.fullname = state.get("fullname") == null ? DEFAULT_LOCATION : state.get("fullname").toString();
+                this.language = state.get("language") == null ? DEFAULT_LOCATION : state.get("language").toString();
+            }
+        }
+
+        UserProfile(String uuid, JsonNode state) {
             this.uuid = uuid;
 
             if (state != null) {
                 if (state.get("fullname") != null)
                     this.fullname = state.get("fullname").asText();
                 else
-                    this.location = "Anonymous";
+                    this.fullname = DEFAULT_FULLNAME;
 
                 if (state.get("location") != null)
                     this.location = state.get("location").asText();
                 else
-                    this.location = "Somewhere";
+                    this.location = DEFAULT_LOCATION;
 
                 if (state.get("language") != null)
                     this.language = state.get("language").asText();
                 else
-                    this.language = "en";
+                    this.language = DEFAULT_LANGUAGE;
             } else {
-                this.location = "Somewhere";
-                this.fullname = "Anonymous";
-                this.language = "en";
+                this.location = DEFAULT_LOCATION;
+                this.fullname = DEFAULT_FULLNAME;
+                this.language = DEFAULT_LANGUAGE;
             }
         }
 
-//        public UserProfile(String uuid, LinkedHashMap state) {
-//            this.uuid = uuid;
-//
-//            if (state != null) {
-//                if (state.get("fullname") != null)
-//                    this.fullname = state.get("fullname").asText();
-//                else
-//                    this.location = "Anonymous";
-//
-//                if (state.get("location") != null)
-//                    this.location = state.get("location").asText();
-//                else
-//                    this.location = "Somewhere";
-//
-//                if (state.get("language") != null)
-//                    this.language = state.get("language").asText();
-//                else
-//                    this.language = "en";
-//            }
-//            else {
-//                this.location = "Somewhere";
-//                this.fullname = "Anonymous";
-//                this.language = "en";
-//            }
-//        }
-
-        public String getFullname() {
+        String getFullname() {
             return fullname;
         }
 
-        public void setFullname(String fullname) {
+        void setFullname(String fullname) {
             this.fullname = fullname;
         }
 
-        public String getUuid() {
+        String getUuid() {
             return uuid;
         }
 
-        public void setUuid(String uuid) {
+        void setUuid(String uuid) {
             this.uuid = uuid;
         }
 
-        public String getLocation() {
+        String getLocation() {
             return location;
         }
 
-        public void setLocation(String location) {
+        void setLocation(String location) {
             this.location = location;
         }
 
-        public String getLanguage() {
+        String getLanguage() {
             return language;
         }
 
-        public void setLanguage(String language) {
+        void setLanguage(String language) {
             this.language = language;
         }
     }
-
-//    static public class CustomDialogFragment extends DialogFragment {
-//        /** The system calls this to get the DialogFragment's layout, regardless
-//         of whether it's being displayed as a dialog or an embedded fragment. */
-//        @Override
-//        public View onCreateView(LayoutInflater inflater, ViewGroup container,
-//                                 Bundle savedInstanceState) {
-//            // Inflate the layout to use as dialog or embedded fragment
-//            return inflater.inflate(R.layout.buddies, container, false);
-//        }
-//
-//        /** The system calls this only when creating the layout in a dialog. */
-//        @Override
-//        public Dialog onCreateDialog(Bundle savedInstanceState) {
-//            // The only reason you might override this method when using onCreateView() is
-//            // to modify any dialog characteristics. For example, the dialog includes a
-//            // title by default, but your custom layout might not need it. So here you can
-//            // remove the dialog title, but you must call the superclass to get the Dialog.
-//            Dialog dialog = super.onCreateDialog(savedInstanceState);
-//            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-//            return dialog;
-//        }
-//    }
 }

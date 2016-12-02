@@ -38,6 +38,7 @@
     <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
         android:layout_weight="1"
         android:orientation="horizontal">
 
@@ -49,12 +50,11 @@
             android:drawSelectorOnTop="false" />
 
         <ListView
-        android:id="@+id/messagesListView"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:drawSelectorOnTop="false"
-        />
+            android:id="@+id/messagesListView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:drawSelectorOnTop="false" />
 
     </LinearLayout>
 
