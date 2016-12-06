@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <EditTextPreference
+        android:key="uuid"
+        android:summary="PubNub UUID"
+        android:title="@string/uuid"></EditTextPreference>
+
+    <EditTextPreference
+        android:key="fullname"
+        android:summary="Please provide your full name"
+        android:title="@string/fullname"></EditTextPreference>
+
+    <EditTextPreference
+        android:key="location"
+        android:summary="Please provide your location"
+        android:title="@string/location"></EditTextPreference>
+
+    <ListPreference
+        android:defaultValue="1"
+        android:entries="@array/listNames"
+        android:entryValues="@array/listValues"
+        android:key="language"
+        android:summary="Select your preferred language"
+        android:title="@string/language" />
+</PreferenceScreen>

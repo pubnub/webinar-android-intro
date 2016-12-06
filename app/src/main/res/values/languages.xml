@@ -1,0 +1,13 @@
+<resources>
+    <string-array name="listValues">
+        <item>en</item>
+        <item>fr</item>
+        <item>es</item>
+    </string-array>
+
+    <string-array name="listNames">
+        <item>English</item>
+        <item>French</item>
+        <item>Spanish</item>
+    </string-array>
+</resources>

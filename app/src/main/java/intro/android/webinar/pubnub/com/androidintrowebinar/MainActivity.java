@@ -1,9 +1,10 @@
 package intro.android.webinar.pubnub.com.androidintrowebinar;
 
-import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Gravity;
@@ -53,7 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private final static int ACTION_UPDATE = 0;
     private final static int ACTION_ADD = 1;
 
-    private PubNub pubnub;
+    private static PubNub pubnub;
 
     private UserProfile profile;
 
@@ -77,10 +78,10 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         buddiesListView = (ListView) findViewById(R.id.buddiesListView);
-        messagesListView = (ListView) findViewById( R.id.messagesListView );
+        messagesListView = (ListView) findViewById(R.id.messagesListView);
 
-        messageEditText = (EditText) findViewById( R.id.messageEditText );
-        sendButton = (Button) findViewById( R.id.sendButton );
+        messageEditText = (EditText) findViewById(R.id.messageEditText);
+        sendButton = (Button) findViewById(R.id.sendButton);
         activeStatusToggle = (ToggleButton) findViewById(R.id.statusToggleButton);
         buddiesButton = (Button) findViewById(R.id.buddiesButton);
 
@@ -90,12 +91,12 @@ public class MainActivity extends AppCompatActivity {
         initBuddiesListView();
         initMessagesListView();
 
-        initPubNub();
+        getPubNub();
         addPubNubListener();
     }
 
     // init the PubNub object
-    public void initPubNub() {
+    public PubNub getPubNub() {
         if (pubnub == null) {
             PNConfiguration pnConfiguration = new PNConfiguration();
             pnConfiguration.setSubscribeKey("demo-36");
@@ -104,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
             configurePubnubUUID(pnConfiguration);
             pubnub = new PubNub(pnConfiguration);
         }
+
+        return pubnub;
     }
 
     public void addPubNubListener() {
@@ -179,7 +182,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /** Called when the user clicks the Send button */
+    /**
+     * Called when the user clicks the Send button
+     */
     public void sendMessage(View view) {
         Log.v(TAG, messageEditText.getText().toString());
 
@@ -385,29 +390,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void configurePubnubUUID(PNConfiguration pnconfig) {
-        SharedPreferences sharedPrefs = getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE);
+        SharedPreferences defaultPrefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
+        SharedPreferences.Editor editor = defaultPrefs.edit();
 
         // get the current pn_uuid value (first time, it will be null)
-        String uuid = sharedPrefs.getString("pubnub-uuid", null);
+        String uuid = defaultPrefs.getString("uuid", null);
 
         // if uuid hasn’t been created/ persisted, then create
         // and persist to use for subsequent app loads/connections
         if (uuid == null || uuid.length() == 0) {
             // generate a UUID or use your own custom uuid, if required
             uuid = UUID.randomUUID().toString();
-            sharedPrefs.edit().putString("pubnub-uuid", uuid);
-            sharedPrefs.edit().putString("pubnub-location", profile == null ? UserProfile.DEFAULT_LOCATION : profile.getLocation());
-            sharedPrefs.edit().putString("pubnub-language", profile == null ? UserProfile.DEFAULT_LANGUAGE : profile.getLanguage());
-            sharedPrefs.edit().putString("pubnub-fullname", profile == null ? UserProfile.DEFAULT_FULLNAME : profile.getFullname());
-            sharedPrefs.edit().commit();
+            editor.putString("uuid", uuid);
+            editor.putString("location", profile == null ? UserProfile.DEFAULT_LOCATION : profile.getLocation());
+            editor.putString("language", profile == null ? UserProfile.DEFAULT_LANGUAGE : profile.getLanguage());
+            editor.putString("fullname", profile == null ? UserProfile.DEFAULT_FULLNAME : profile.getFullname());
+            editor.commit();
         }
 
         profile = new UserProfile();
         profile.setUuid(uuid);
-        profile.setFullname(sharedPrefs.getString("pubnub-fullname", UserProfile.DEFAULT_FULLNAME));
-        profile.setLanguage(sharedPrefs.getString("pubnub-language", UserProfile.DEFAULT_LANGUAGE));
-        profile.setLocation(sharedPrefs.getString("pubnub-location", UserProfile.DEFAULT_LOCATION));
+        profile.setFullname(defaultPrefs.getString("fullname", UserProfile.DEFAULT_FULLNAME));
+        profile.setLanguage(defaultPrefs.getString("language", UserProfile.DEFAULT_LANGUAGE));
+        profile.setLocation(defaultPrefs.getString("location", UserProfile.DEFAULT_LOCATION));
 
+        // set the uuid for pnconfig
         pnconfig.setUuid(uuid);
     }
 
@@ -484,6 +491,11 @@ public class MainActivity extends AppCompatActivity {
         };
 
         messagesListView.setAdapter(messagesListAdapter);
+    }
+
+    public void displayProfile(View view) {
+        Intent intent = new Intent(this, ProfileActivity.class);
+        startActivity(intent);
     }
 
     class ChatMessage {

@@ -12,13 +12,6 @@
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/buddiesButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:onClick="displayBuddies"
-            android:text="@string/button_buddies" />
-
-        <Button
             android:id="@+id/profileButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

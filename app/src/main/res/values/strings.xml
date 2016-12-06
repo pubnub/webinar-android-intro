@@ -6,4 +6,8 @@
     <string name="button_buddies">Buddies</string>
     <string name="toggle_active">Leave</string>
     <string name="toggle_inactive">Join</string>
+    <string name="fullname">Full Name</string>
+    <string name="location">Location</string>
+    <string name="language">language</string>
+    <string name="uuid">uuid</string>
 </resources>
