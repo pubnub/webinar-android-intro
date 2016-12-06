@@ -1,9 +1,15 @@
 package intro.android.webinar.pubnub.com.androidintrowebinar;
 
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.preference.PreferenceManager;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -21,11 +27,8 @@ import android.widget.ToggleButton;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.pubnub.api.PNConfiguration;
-import com.pubnub.api.PubNub;
 import com.pubnub.api.PubNubException;
 import com.pubnub.api.callbacks.PNCallback;
-import com.pubnub.api.callbacks.SubscribeCallback;
 import com.pubnub.api.enums.PNStatusCategory;
 import com.pubnub.api.models.consumer.PNPublishResult;
 import com.pubnub.api.models.consumer.PNStatus;
@@ -34,9 +37,8 @@ import com.pubnub.api.models.consumer.history.PNHistoryResult;
 import com.pubnub.api.models.consumer.presence.PNHereNowChannelData;
 import com.pubnub.api.models.consumer.presence.PNHereNowOccupantData;
 import com.pubnub.api.models.consumer.presence.PNHereNowResult;
-import com.pubnub.api.models.consumer.pubsub.PNMessageResult;
-import com.pubnub.api.models.consumer.pubsub.PNPresenceEventResult;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -54,9 +56,8 @@ public class MainActivity extends AppCompatActivity {
     private final static int ACTION_UPDATE = 0;
     private final static int ACTION_ADD = 1;
 
-    private static PubNub pubnub;
-
     private UserProfile profile;
+    private PNDataReceiver pnDataReceiver;
 
     private ArrayAdapter<String> buddiesListAdapter;
     private ArrayList<UserProfile> buddiesListItems = new ArrayList<UserProfile>();
@@ -71,6 +72,21 @@ public class MainActivity extends AppCompatActivity {
     private Button buddiesButton;
     private ToggleButton activeStatusToggle;
     private HashMap<String, UserProfile> buddyList;
+
+    private PubNubService pubnubService;
+    public ServiceConnection pubnubServiceConn = new ServiceConnection() {
+        public void onServiceConnected(ComponentName className, IBinder binder) {
+            Log.d("ServiceConnection", "connected");
+            pubnubService = ((PubNubService.Binder)binder).getService();
+            configurePubnubUUID();
+        }
+        //binder comes from server to communicate with method's of
+
+        public void onServiceDisconnected(ComponentName className) {
+            Log.d("ServiceConnection", "disconnected");
+            pubnubService = null;
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,98 +104,120 @@ public class MainActivity extends AppCompatActivity {
         // buddyList: uuid:state
         buddyList = new HashMap<String, UserProfile>();
 
+        // set uuid on PubNub instance in PubNubService
+
         initBuddiesListView();
         initMessagesListView();
-
-        getPubNub();
-        addPubNubListener();
     }
 
-    // init the PubNub object
-    public PubNub getPubNub() {
-        if (pubnub == null) {
-            PNConfiguration pnConfiguration = new PNConfiguration();
-            pnConfiguration.setSubscribeKey("demo-36");
-            pnConfiguration.setPublishKey("demo-36");
-            pnConfiguration.setSecure(false);
-            configurePubnubUUID(pnConfiguration);
-            pubnub = new PubNub(pnConfiguration);
+    @Override
+    protected void onStart() {
+        super.onStart();
+        pnDataReceiver = new PNDataReceiver();
+
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(PubNubService.ACTION_PN_MESSAGE);
+        intentFilter.addAction(PubNubService.ACTION_PN_STATUS);
+        intentFilter.addAction(PubNubService.ACTION_PN_PRESENCE);
+        registerReceiver(pnDataReceiver, intentFilter);
+
+        Intent intent = new Intent(MainActivity.this, PubNubService.class);
+        bindService(intent);
+        startService(intent);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+
+        Intent intent = new Intent(MainActivity.this, PubNubService.class);
+        bindService(intent);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+
+        if (pubnubServiceConn != null) {
+            unbindService(pubnubServiceConn);
         }
-
-        return pubnub;
     }
 
-    public void addPubNubListener() {
-        pubnub.addListener(new SubscribeCallback() {
-            // MESSAGES
-            @Override
-            public void message(PubNub pubnub, PNMessageResult message) {
-                Log.v(TAG, message.getMessage().toString());
-                addMessage(new ChatMessage(message.getMessage(), message.getTimetoken()));
-            }
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        unbindService(pubnubServiceConn);
+    }
 
-            // STATUS EVENTS
-            @Override
-            public void status(PubNub pubnub, PNStatus status) {
-                Log.v(TAG, status.getCategory().toString());
+    private void bindService(Intent intent) {
+        if (pubnubServiceConn != null) {
+            bindService(intent, pubnubServiceConn, Context.BIND_AUTO_CREATE);
+        }
+    }
 
-                if (status.getCategory() == PNStatusCategory.PNConnectedCategory) {
-                    showToast("You have joined");
-                    fetchHistory();
-                    fetchBuddies();
-                    updateBuddyList(ACTION_ADD, profile.getUuid(), profile);
-                } else if (status.getCategory() == PNStatusCategory.PNUnexpectedDisconnectCategory) {
-                    showToast("Internet connectivity has been lost.");
-                } else if (status.getCategory() == PNStatusCategory.PNReconnectedCategory) {
-                    showToast("You have rejoined the chat room.");
-                    fetchBuddies();
-                    fetchHistory();
-                }
-            }
+    private void unbindService() {
+        if (pubnubServiceConn != null) {
+            unbindService(pubnubServiceConn);
+        }
+    }
 
-            // PRESENCE EVENTS
-            @Override
-            public void presence(PubNub pubnub, PNPresenceEventResult presence) {
-                Log.d(TAG, "begin presence: " + presence.getEvent() + ", " + presence.getUuid());
+    private void handleStatusEvent(PNStatusCategory statusCategory) {
+        if (statusCategory == PNStatusCategory.PNConnectedCategory) {
+            showToast("You have joined");
+            fetchHistory();
+            fetchBuddies();
+            updateBuddyList(ACTION_ADD, profile.getUuid(), profile);
+        }
+        else if (statusCategory == PNStatusCategory.PNUnexpectedDisconnectCategory) {
+            showToast("Internet connectivity has been lost.");
+        }
+        else if (statusCategory == PNStatusCategory.PNReconnectedCategory) {
+            showToast("You have rejoined the chat room.");
+            fetchBuddies();
+            fetchHistory();
+        }
+    }
 
-                String action = presence.getEvent();
-                String uuid = presence.getUuid();
-                String channel = presence.getChannel();
+    private void handlePresenceEvent(PresenceEvent presence) {
+        String action = presence.getAction();
+        String uuid = presence.getUuid();
+        String channel = presence.getChannel();
 
-                // JOIN event
-                if (action.equalsIgnoreCase("join")) {
-                    if (!uuid.equalsIgnoreCase(pubnub.getConfiguration().getUuid())) {
-                        showToast(uuid + " has joined");
-                    }
+        // JOIN event
+        if (action.equalsIgnoreCase("join")) {
+            if (!uuid.equalsIgnoreCase(pubnubService.getPubNub().getConfiguration().getUuid())) {
+                showToast(uuid + " has joined");
+
 
 //                    UserProfile buddy = new UserProfile(uuid, (JsonNode) presence.getState());
 //                    addBuddy(buddy);
 
-                    try {
-                        pubnub.setPresenceState().channels(Arrays.asList(CHANNEL))
-                                .state((JsonNode) createState()).sync();
-                    } catch (PubNubException e) {
-                        e.printStackTrace();
-                    }
+                try {
+                    pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
+                            .state((JsonNode) createState()).sync();
                 }
-                // LEAVE or TIMEOUT event
-                else if (action.equalsIgnoreCase("leave") || action.equalsIgnoreCase("timeout")) {
-                    showToast(uuid + " has left");
-
-                    updateBuddyList(ACTION_REMOVE, uuid, null);
-                }
-                // STATE CHANGE event
-                else if (action.equalsIgnoreCase("state-change")) {
-                    // update state of buddy in list
-                    UserProfile buddy = new UserProfile(uuid, presence.getState());
-                    updateBuddyList(ACTION_UPDATE, uuid, buddy);
-                } else {
-                    // interval mode; occupancy exceeded max announce
-                    // can use join/leave delta if enabled
-                    // Andvanced Feature
+                catch (PubNubException e) {
+                    e.printStackTrace();
                 }
             }
-        });
+        }
+        // LEAVE or TIMEOUT event
+        else if (action.equalsIgnoreCase("leave") || action.equalsIgnoreCase("timeout")) {
+            showToast(uuid + " has left");
+
+            updateBuddyList(ACTION_REMOVE, uuid, null);
+        }
+        // STATE CHANGE event
+        else if (action.equalsIgnoreCase("state-change")) {
+            // update state of buddy in list
+            UserProfile buddy = new UserProfile(uuid, presence.getState());
+            updateBuddyList(ACTION_UPDATE, uuid, buddy);
+        }
+        else {
+            // interval mode; occupancy exceeded max announce
+            // can use join/leave delta if enabled
+            // Andvanced Feature
+        }
     }
 
     /**
@@ -188,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
     public void sendMessage(View view) {
         Log.v(TAG, messageEditText.getText().toString());
 
-        pubnub.publish()
+        pubnubService.getPubNub().publish()
                 .channel(CHANNEL)
                 .message(createMessage(messageEditText.getText().toString()))
                 .async(new PNCallback<PNPublishResult>() {
@@ -208,7 +246,7 @@ public class MainActivity extends AppCompatActivity {
         JsonNodeFactory factory = JsonNodeFactory.instance;
         ObjectNode payload = factory.objectNode();
         payload.put("text", message);
-        payload.put("sender", pubnub.getConfiguration().getUuid());
+        payload.put("sender", pubnubService.getPubNub().getConfiguration().getUuid());
 
         return payload;
     }
@@ -243,7 +281,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void fetchHistory() {
-        pubnub.history().channel(CHANNEL).includeTimetoken(true).async(new PNCallback<PNHistoryResult>() {
+        pubnubService.getPubNub().history().channel(CHANNEL).includeTimetoken(true).async(new PNCallback<PNHistoryResult>() {
             @Override
             public void onResponse(PNHistoryResult result, PNStatus status) {
                 clearMessages();
@@ -251,7 +289,7 @@ public class MainActivity extends AppCompatActivity {
                 List<PNHistoryItemResult> results = result.getMessages();
 
                 for (PNHistoryItemResult item : results) {
-                    addMessage(new ChatMessage(item.getEntry(), item.getTimetoken()));
+                    addMessage(new ChatMessage(CHANNEL, item.getTimetoken(), item.getEntry()));
                 }
             }
         });
@@ -279,9 +317,11 @@ public class MainActivity extends AppCompatActivity {
                 // remove buddy from buddy list
                 if (action == ACTION_REMOVE) {
                     buddiesListItems.remove(pos);
-                } else if (action == ACTION_ADD) {
+                }
+                else if (action == ACTION_ADD) {
                     buddiesListItems.add(buddy);
-                } else {
+                }
+                else {
                     if (tbuddy == null) {
                         // buddy was not found in current buddy list, so add to list
                         buddiesListItems.add(buddy);
@@ -307,7 +347,7 @@ public class MainActivity extends AppCompatActivity {
     private void fetchBuddies() {
         Log.d(TAG, "begin fetchBuddies");
 
-        pubnub.hereNow().channels(Arrays.asList(CHANNEL)).includeUUIDs(true).includeState(true).async(
+        pubnubService.getPubNub().hereNow().channels(Arrays.asList(CHANNEL)).includeUUIDs(true).includeState(true).async(
                 new PNCallback<PNHereNowResult>() {
                     @Override
                     public void onResponse(PNHereNowResult result, PNStatus status) {
@@ -327,7 +367,7 @@ public class MainActivity extends AppCompatActivity {
                             for (PNHereNowOccupantData occupant : channelData.getOccupants()) {
                                 Log.d(TAG, "uuid: " + occupant.getUuid() + " state: " + occupant.getState());
 
-                                if (!occupant.getUuid().equals(pubnub.getConfiguration().getUuid())) {
+                                if (!occupant.getUuid().equals(pubnubService.getPubNub().getConfiguration().getUuid())) {
                                     updateBuddyList(ACTION_ADD, occupant.getUuid(),
                                             new UserProfile(occupant.getUuid(), (LinkedHashMap) occupant.getState()));
                                 }
@@ -350,19 +390,20 @@ public class MainActivity extends AppCompatActivity {
     public void toggleActiveStatus(View v) {
         if (activeStatusToggle.isChecked()) {
             joinChat();
-        } else {
+        }
+        else {
             leaveChat();
         }
     }
 
     private void joinChat() {
-        pubnub.subscribe().channels(Arrays.asList(CHANNEL)).withPresence().execute();
+        pubnubService.getPubNub().subscribe().channels(Arrays.asList(CHANNEL)).withPresence().execute();
         sendButton.setEnabled(true);
         messageEditText.setEnabled(true);
     }
 
     private void leaveChat() {
-        pubnub.unsubscribe().channels(Arrays.asList(CHANNEL)).execute();
+        pubnubService.getPubNub().unsubscribe().channels(Arrays.asList(CHANNEL)).execute();
         sendButton.setEnabled(false);
         messageEditText.setEnabled(false);
         clearBuddies();
@@ -389,7 +430,7 @@ public class MainActivity extends AppCompatActivity {
         return payload;
     }
 
-    private void configurePubnubUUID(PNConfiguration pnconfig) {
+    private void configurePubnubUUID() {
         SharedPreferences defaultPrefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
         SharedPreferences.Editor editor = defaultPrefs.edit();
 
@@ -415,7 +456,7 @@ public class MainActivity extends AppCompatActivity {
         profile.setLocation(defaultPrefs.getString("location", UserProfile.DEFAULT_LOCATION));
 
         // set the uuid for pnconfig
-        pnconfig.setUuid(uuid);
+        pubnubService.getPubNub().getConfiguration().setUuid(uuid);
     }
 
     private String getFormattedDateTime(Date date) {
@@ -463,28 +504,27 @@ public class MainActivity extends AppCompatActivity {
                 TextView text2 = (TextView) view.findViewById(android.R.id.text2);
 
                 ChatMessage item = messagesListItems.get(position);
-                JsonNode senderNode = item.getMessage().get("sender");
+                String sender = item.getSender();
+                String text = item.getText();
 
-                if (item.getMessage().get("text") != null) {
-                    text1.setText(item.getMessage().get("text").asText());
+                text1.setText(text);
 
-                    // my messages are blue
-                    if (senderNode.asText().equals(pubnub.getConfiguration().getUuid()))
-                        text1.setTextColor(Color.BLUE);
-                        // everyone elses' are red
-                    else
-                        text1.setTextColor(Color.RED);
+                // my messages are blue
+                if (sender != null && sender.equals(pubnubService.getPubNub().getConfiguration().getUuid()))
+                    text1.setTextColor(Color.BLUE);
+                    // everyone elses' are red
+                else
+                    text1.setTextColor(Color.RED);
 
-                    String when = getFormattedDateTime(new java.util.Date(
-                            (long) item.getPublishTT() / 10000)).toString();
+                String when = getFormattedDateTime(new java.util.Date(
+                        (long) item.getPublishTT() / 10000)).toString();
 
-                    text2.setGravity(Gravity.RIGHT);
+                text2.setGravity(Gravity.RIGHT);
 
-                    if (senderNode != null)
-                        text2.setText(senderNode.asText() + "\n" + when);
-                    else
-                        text2.setText("unknown \n" + when);
-                }
+                if (sender != null)
+                    text2.setText(sender + "\n" + when);
+                else
+                    text2.setText("unknown \n" + when);
 
                 return view;
             }
@@ -498,113 +538,25 @@ public class MainActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    class ChatMessage {
-        private JsonNode message;
-        private Long publishTT;
+    private class PNDataReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Serializable data = intent.getSerializableExtra(PubNubService.PN_DATA);
 
-        ChatMessage(JsonNode message, Long timetoken) {
-            this.setMessage(message);
-            this.setPublishTT(timetoken);
-        }
+            // MESSAGES
+            if (intent.getAction().equals(PubNubService.ACTION_PN_MESSAGE)) {
+                addMessage((ChatMessage) data);
+            }
+            // STATUS EVENTS
+            else if (intent.getAction().equals(PubNubService.ACTION_PN_STATUS)) {
+                handleStatusEvent((PNStatusCategory)data);
+            }
+            // PRESENCE EVENTS
+            else {
+                handlePresenceEvent((PresenceEvent)data);
+            }
 
-        JsonNode getMessage() {
-            return message;
-        }
-
-        void setMessage(JsonNode message) {
-            this.message = message;
-        }
-
-        Long getPublishTT() {
-            return publishTT;
-        }
-
-        void setPublishTT(Long publishTT) {
-            this.publishTT = publishTT;
         }
     }
 
-    class UserProfile {
-        public static final String DEFAULT_LOCATION = "unknown";
-        public static final String DEFAULT_FULLNAME = "anon";
-        public static final String DEFAULT_LANGUAGE = "en";
-
-        private String fullname;
-        private String uuid;
-        private String location;
-        private String language;
-
-        UserProfile() {
-        }
-
-        UserProfile(String uuid, LinkedHashMap state) {
-            JsonNodeFactory factory = JsonNodeFactory.instance;
-            ObjectNode payload = factory.objectNode();
-
-            this.uuid = uuid;
-
-            if (state != null) {
-                this.location = state.get("location") == null ? DEFAULT_LOCATION : state.get("location").toString();
-                this.fullname = state.get("fullname") == null ? DEFAULT_LOCATION : state.get("fullname").toString();
-                this.language = state.get("language") == null ? DEFAULT_LOCATION : state.get("language").toString();
-            }
-        }
-
-        UserProfile(String uuid, JsonNode state) {
-            this.uuid = uuid;
-
-            if (state != null) {
-                if (state.get("fullname") != null)
-                    this.fullname = state.get("fullname").asText();
-                else
-                    this.fullname = DEFAULT_FULLNAME;
-
-                if (state.get("location") != null)
-                    this.location = state.get("location").asText();
-                else
-                    this.location = DEFAULT_LOCATION;
-
-                if (state.get("language") != null)
-                    this.language = state.get("language").asText();
-                else
-                    this.language = DEFAULT_LANGUAGE;
-            } else {
-                this.location = DEFAULT_LOCATION;
-                this.fullname = DEFAULT_FULLNAME;
-                this.language = DEFAULT_LANGUAGE;
-            }
-        }
-
-        String getFullname() {
-            return fullname;
-        }
-
-        void setFullname(String fullname) {
-            this.fullname = fullname;
-        }
-
-        String getUuid() {
-            return uuid;
-        }
-
-        void setUuid(String uuid) {
-            this.uuid = uuid;
-        }
-
-        String getLocation() {
-            return location;
-        }
-
-        void setLocation(String location) {
-            this.location = location;
-        }
-
-        String getLanguage() {
-            return language;
-        }
-
-        void setLanguage(String language) {
-            this.language = language;
-        }
-    }
 }
