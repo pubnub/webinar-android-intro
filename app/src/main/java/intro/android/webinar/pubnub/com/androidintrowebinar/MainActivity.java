@@ -24,7 +24,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pubnub.api.PubNubException;
@@ -51,11 +50,10 @@ public class MainActivity extends AppCompatActivity {
     final static public String TAG = "MainActivity";
     final static public String APP_PREFS = "app-prefs";
     final static public String CHANNEL = "intro-webinar";
-
+    public final static int REQUEST_CODE_PROFILE_UPDATED = 1;
     private final static int ACTION_REMOVE = -1;
     private final static int ACTION_UPDATE = 0;
     private final static int ACTION_ADD = 1;
-
     private UserProfile profile;
     private PNDataReceiver pnDataReceiver;
 
@@ -131,21 +129,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onResume() {
         Log.d(TAG, "$$$ MainActivity.onResume");
-
-//        Intent intent = new Intent(MainActivity.this, PubNubService.class);
-//        bindService(intent);
-
         super.onResume();
     }
 
     @Override
     public void onPause() {
         Log.d(TAG, "$$$ MainActivity.onPause");
-
-//        if (pubnubServiceConn != null) {
-//            unbindService();
-//        }
-
         super.onPause();
     }
 
@@ -203,7 +192,7 @@ public class MainActivity extends AppCompatActivity {
 
                 try {
                     pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
-                            .state((JsonNode)createState()).sync();
+                            .state(createState()).sync();
                 }
                 catch (PubNubException e) {
                     e.printStackTrace();
@@ -549,7 +538,38 @@ public class MainActivity extends AppCompatActivity {
 
     public void displayProfile(View view) {
         Intent intent = new Intent(this, ProfileActivity.class);
-        startActivity(intent);
+        intent.putExtra("profile", profile);
+        startActivityForResult(intent, REQUEST_CODE_PROFILE_UPDATED);
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        switch(requestCode) {
+            case (REQUEST_CODE_PROFILE_UPDATED) : {
+                if (resultCode == MainActivity.RESULT_OK) {
+                    // profile was updated, so set state with new profile data
+                    // NOTE: must set all state keys, not just the changes keys
+                    profile = (UserProfile) data.getExtras().getSerializable("updatedProfile");
+
+                    try {
+                        // executing any PubNub ops here crashes app
+                        // but if skip calling any PN ops here, publish still works later in app
+                        Object result = pubnubService.getPubNub().time().sync();
+                        Log.d(TAG, "*** time: " + result.toString());
+
+                        // I want to call this, but just calling "time" crashes app
+//                            pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
+//                                    .state(createState()).sync();
+                    }
+                    catch (PubNubException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            break;
+        }
     }
 
     private String getFormattedDateTime(Date date) {
@@ -582,5 +602,4 @@ public class MainActivity extends AppCompatActivity {
 
         }
     }
-
 }

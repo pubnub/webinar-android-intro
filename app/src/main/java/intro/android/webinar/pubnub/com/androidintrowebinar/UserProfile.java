@@ -4,13 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.io.Serializable;
 import java.util.LinkedHashMap;
 
 /**
  * Created by pubnubcvconover on 12/6/16.
  */
 
-public class UserProfile {
+public class UserProfile implements Serializable {
     public static final String DEFAULT_LOCATION = "unknown";
     public static final String DEFAULT_FULLNAME = "anon";
     public static final String DEFAULT_LANGUAGE = "en";
