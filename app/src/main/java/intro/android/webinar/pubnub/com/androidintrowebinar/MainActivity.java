@@ -314,18 +314,21 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                // remove buddy from buddy list
                 if (action == ACTION_REMOVE) {
                     buddiesListItems.remove(pos);
+                    buddyList.remove(uuid);
                 }
                 else if (action == ACTION_ADD) {
                     buddiesListItems.add(buddy);
+                    buddyList.put(uuid, buddy);
                 }
                 else {
                     if (tbuddy == null) {
                         // buddy was not found in current buddy list, so add to list
                         buddiesListItems.add(buddy);
-                    } else {
+                        buddyList.put(uuid, buddy);
+                    }
+                    else {
                         // buddy was already found in the list so just update the element in place
                         buddiesListItems.set(pos, buddy);
                     }
@@ -459,11 +462,6 @@ public class MainActivity extends AppCompatActivity {
         pubnubService.getPubNub().getConfiguration().setUuid(uuid);
     }
 
-    private String getFormattedDateTime(Date date) {
-        android.text.format.DateFormat df = new android.text.format.DateFormat();
-        return df.format("MM-dd hh:mm:ss", date).toString();
-    }
-
     private void initBuddiesListView() {
         buddiesListAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1, buddiesListItems) {
             @Override
@@ -480,9 +478,7 @@ public class MainActivity extends AppCompatActivity {
                 String uuid = item.getUuid();
 
                 if (name != null && name.equals("anon") && uuid != null) {
-                    int length = uuid.length() > 12 ? 12 : uuid.length();
-                    Log.d(TAG, "*** length: " + length);
-                    name = item.getUuid().substring(0, length);
+                    name = truncateUserIdentity(uuid);
                 }
 
                 text1.setText(name);
@@ -521,8 +517,17 @@ public class MainActivity extends AppCompatActivity {
 
                 text2.setGravity(Gravity.RIGHT);
 
-                if (sender != null)
-                    text2.setText(sender + "\n" + when);
+                if (sender != null) {
+                    String who = sender;
+                    UserProfile buddy = buddyList.get(sender);
+
+                    if (buddy != null) {
+                        who = buddy.getFullname();
+                    }
+                    else who = truncateUserIdentity(who);
+
+                    text2.setText(who + "\n" + when);
+                }
                 else
                     text2.setText("unknown \n" + when);
 
@@ -536,6 +541,16 @@ public class MainActivity extends AppCompatActivity {
     public void displayProfile(View view) {
         Intent intent = new Intent(this, ProfileActivity.class);
         startActivity(intent);
+    }
+
+    private String getFormattedDateTime(Date date) {
+        android.text.format.DateFormat df = new android.text.format.DateFormat();
+        return df.format("MM-dd hh:mm:ss", date).toString();
+    }
+
+    private String truncateUserIdentity(String uuid) {
+        int length = uuid.length() > 12 ? 12 : uuid.length();
+        return uuid.substring(0, length);
     }
 
     private class PNDataReceiver extends BroadcastReceiver {
