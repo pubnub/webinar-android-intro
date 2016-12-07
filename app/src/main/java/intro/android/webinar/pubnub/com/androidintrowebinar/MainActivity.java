@@ -76,20 +76,22 @@ public class MainActivity extends AppCompatActivity {
     private PubNubService pubnubService;
     public ServiceConnection pubnubServiceConn = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
-            Log.d("ServiceConnection", "connected");
+            Log.d("$$$ ServiceConnection", "connected");
             pubnubService = ((PubNubService.Binder)binder).getService();
             configurePubnubUUID();
         }
         //binder comes from server to communicate with method's of
 
         public void onServiceDisconnected(ComponentName className) {
-            Log.d("ServiceConnection", "disconnected");
+            Log.d("$$$ ServiceConnection", "disconnected");
             pubnubService = null;
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Log.d(TAG, "$$$ MainActivity.onCreate");
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -104,15 +106,6 @@ public class MainActivity extends AppCompatActivity {
         // buddyList: uuid:state
         buddyList = new HashMap<String, UserProfile>();
 
-        // set uuid on PubNub instance in PubNubService
-
-        initBuddiesListView();
-        initMessagesListView();
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
         pnDataReceiver = new PNDataReceiver();
 
         IntentFilter intentFilter = new IntentFilter();
@@ -122,40 +115,58 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(pnDataReceiver, intentFilter);
 
         Intent intent = new Intent(MainActivity.this, PubNubService.class);
-        bindService(intent);
         startService(intent);
+        bindService(intent);
+
+        initBuddiesListView();
+        initMessagesListView();
+    }
+
+    @Override
+    protected void onStart() {
+        Log.d(TAG, "$$$ MainActivity.onStart");
+        super.onStart();
     }
 
     @Override
     public void onResume() {
-        super.onResume();
+        Log.d(TAG, "$$$ MainActivity.onResume");
 
-        Intent intent = new Intent(MainActivity.this, PubNubService.class);
-        bindService(intent);
+//        Intent intent = new Intent(MainActivity.this, PubNubService.class);
+//        bindService(intent);
+
+        super.onResume();
     }
 
     @Override
     public void onPause() {
-        super.onPause();
+        Log.d(TAG, "$$$ MainActivity.onPause");
 
-        if (pubnubServiceConn != null) {
-            unbindService(pubnubServiceConn);
-        }
+//        if (pubnubServiceConn != null) {
+//            unbindService();
+//        }
+
+        super.onPause();
     }
 
     @Override
     public void onDestroy() {
+        Log.d(TAG, "$$$ MainActivity.onDestroy");
+        unbindService();
         super.onDestroy();
-        unbindService(pubnubServiceConn);
     }
 
     private void bindService(Intent intent) {
+        Log.d(TAG, "$$$ MainActivity.bindService");
+
         if (pubnubServiceConn != null) {
             bindService(intent, pubnubServiceConn, Context.BIND_AUTO_CREATE);
         }
     }
 
     private void unbindService() {
+        Log.d(TAG, "$$$ MainActivity.unbindService");
+
         if (pubnubServiceConn != null) {
             unbindService(pubnubServiceConn);
         }
@@ -165,6 +176,7 @@ public class MainActivity extends AppCompatActivity {
         if (statusCategory == PNStatusCategory.PNConnectedCategory) {
             showToast("You have joined");
             fetchHistory();
+            Log.d(TAG, "*** calling fetchBuddies from ConnectedCategory");
             fetchBuddies();
             updateBuddyList(ACTION_ADD, profile.getUuid(), profile);
         }
@@ -173,6 +185,7 @@ public class MainActivity extends AppCompatActivity {
         }
         else if (statusCategory == PNStatusCategory.PNReconnectedCategory) {
             showToast("You have rejoined the chat room.");
+            Log.d(TAG, "*** calling fetchBuddies from ReconnectedCategory");
             fetchBuddies();
             fetchHistory();
         }
@@ -188,13 +201,9 @@ public class MainActivity extends AppCompatActivity {
             if (!uuid.equalsIgnoreCase(pubnubService.getPubNub().getConfiguration().getUuid())) {
                 showToast(uuid + " has joined");
 
-
-//                    UserProfile buddy = new UserProfile(uuid, (JsonNode) presence.getState());
-//                    addBuddy(buddy);
-
                 try {
                     pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
-                            .state((JsonNode) createState()).sync();
+                            .state((JsonNode)createState()).sync();
                 }
                 catch (PubNubException e) {
                     e.printStackTrace();
@@ -204,7 +213,6 @@ public class MainActivity extends AppCompatActivity {
         // LEAVE or TIMEOUT event
         else if (action.equalsIgnoreCase("leave") || action.equalsIgnoreCase("timeout")) {
             showToast(uuid + " has left");
-
             updateBuddyList(ACTION_REMOVE, uuid, null);
         }
         // STATE CHANGE event
@@ -296,7 +304,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateBuddyList(final int action, final String uuid, final UserProfile buddy) {
-        Log.d(TAG, "begin updateBuddyList: " + uuid);
+        Log.d(TAG, "begin updateBuddyList: " + uuid + ", action: " + action);
 
         runOnUiThread(new Runnable() {
             @Override
@@ -386,6 +394,7 @@ public class MainActivity extends AppCompatActivity {
             public void run() {
                 buddiesListItems.clear();
                 buddiesListAdapter.notifyDataSetChanged();
+                buddyList.clear();
             }
         });
     }
