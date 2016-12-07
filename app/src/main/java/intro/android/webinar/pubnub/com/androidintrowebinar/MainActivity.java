@@ -99,7 +99,6 @@ public class MainActivity extends AppCompatActivity {
         messageEditText = (EditText) findViewById(R.id.messageEditText);
         sendButton = (Button) findViewById(R.id.sendButton);
         activeStatusToggle = (ToggleButton) findViewById(R.id.statusToggleButton);
-        buddiesButton = (Button) findViewById(R.id.buddiesButton);
 
         // buddyList: uuid:state
         buddyList = new HashMap<String, UserProfile>();
