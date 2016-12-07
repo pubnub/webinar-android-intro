@@ -26,7 +26,6 @@ import android.widget.ToggleButton;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.pubnub.api.PubNubException;
 import com.pubnub.api.callbacks.PNCallback;
 import com.pubnub.api.enums.PNStatusCategory;
 import com.pubnub.api.models.consumer.PNPublishResult;
@@ -36,6 +35,7 @@ import com.pubnub.api.models.consumer.history.PNHistoryResult;
 import com.pubnub.api.models.consumer.presence.PNHereNowChannelData;
 import com.pubnub.api.models.consumer.presence.PNHereNowOccupantData;
 import com.pubnub.api.models.consumer.presence.PNHereNowResult;
+import com.pubnub.api.models.consumer.presence.PNSetStateResult;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -54,9 +54,9 @@ public class MainActivity extends AppCompatActivity {
     private final static int ACTION_REMOVE = -1;
     private final static int ACTION_UPDATE = 0;
     private final static int ACTION_ADD = 1;
+    IntentFilter intentFilter;
     private UserProfile profile;
     private PNDataReceiver pnDataReceiver;
-
     private ArrayAdapter<String> buddiesListAdapter;
     private ArrayList<UserProfile> buddiesListItems = new ArrayList<UserProfile>();
     private ListView buddiesListView;
@@ -106,11 +106,10 @@ public class MainActivity extends AppCompatActivity {
 
         pnDataReceiver = new PNDataReceiver();
 
-        IntentFilter intentFilter = new IntentFilter();
+        intentFilter = new IntentFilter();
         intentFilter.addAction(PubNubService.ACTION_PN_MESSAGE);
         intentFilter.addAction(PubNubService.ACTION_PN_STATUS);
         intentFilter.addAction(PubNubService.ACTION_PN_PRESENCE);
-        registerReceiver(pnDataReceiver, intentFilter);
 
         Intent intent = new Intent(MainActivity.this, PubNubService.class);
         startService(intent);
@@ -129,12 +128,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onResume() {
         Log.d(TAG, "$$$ MainActivity.onResume");
+        registerReceiver(pnDataReceiver, intentFilter);
         super.onResume();
     }
 
     @Override
     public void onPause() {
         Log.d(TAG, "$$$ MainActivity.onPause");
+        unregisterReceiver(pnDataReceiver);
         super.onPause();
     }
 
@@ -190,13 +191,13 @@ public class MainActivity extends AppCompatActivity {
             if (!uuid.equalsIgnoreCase(pubnubService.getPubNub().getConfiguration().getUuid())) {
                 showToast(uuid + " has joined");
 
-                try {
-                    pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
-                            .state(createState()).sync();
-                }
-                catch (PubNubException e) {
-                    e.printStackTrace();
-                }
+                pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
+                        .state(createState()).async(new PNCallback<PNSetStateResult>() {
+                    @Override
+                    public void onResponse(PNSetStateResult result, PNStatus status) {
+                        Log.d(TAG, "*** state updated");
+                    }
+                });
             }
         }
         // LEAVE or TIMEOUT event
@@ -207,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
         // STATE CHANGE event
         else if (action.equalsIgnoreCase("state-change")) {
             // update state of buddy in list
-            UserProfile buddy = new UserProfile(uuid, presence.getState());
+            UserProfile buddy = presence.getProfile();
             updateBuddyList(ACTION_UPDATE, uuid, buddy);
         }
         else {
@@ -553,19 +554,13 @@ public class MainActivity extends AppCompatActivity {
                     // NOTE: must set all state keys, not just the changes keys
                     profile = (UserProfile) data.getExtras().getSerializable("updatedProfile");
 
-                    try {
-                        // executing any PubNub ops here crashes app
-                        // but if skip calling any PN ops here, publish still works later in app
-                        Object result = pubnubService.getPubNub().time().sync();
-                        Log.d(TAG, "*** time: " + result.toString());
-
-                        // I want to call this, but just calling "time" crashes app
-//                            pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
-//                                    .state(createState()).sync();
-                    }
-                    catch (PubNubException e) {
-                        e.printStackTrace();
-                    }
+                    pubnubService.getPubNub().setPresenceState().channels(Arrays.asList(CHANNEL))
+                            .state(createState()).async(new PNCallback<PNSetStateResult>() {
+                        @Override
+                        public void onResponse(PNSetStateResult result, PNStatus status) {
+                            Log.d(TAG, "*** state updated");
+                        }
+                    });
                 }
             }
             break;

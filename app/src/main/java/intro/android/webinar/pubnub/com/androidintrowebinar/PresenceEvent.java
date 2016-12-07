@@ -1,6 +1,5 @@
 package intro.android.webinar.pubnub.com.androidintrowebinar;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.pubnub.api.models.consumer.pubsub.PNPresenceEventResult;
 
 import java.io.Serializable;
@@ -13,14 +12,14 @@ public class PresenceEvent implements Serializable {
     private String action;
     private String uuid;
     private String channel;
-    private JsonNode state;
+    private UserProfile profile;
 
 
     public PresenceEvent(PNPresenceEventResult presence) {
         this.setAction(presence.getEvent());
         this.setUuid(presence.getUuid());
         this.setChannel(presence.getChannel());
-        this.setState(presence.getState());
+        this.setProfile(new UserProfile(uuid, presence.getState()));
     }
 
     public String getAction() {
@@ -47,11 +46,11 @@ public class PresenceEvent implements Serializable {
         this.channel = channel;
     }
 
-    public JsonNode getState() {
-        return state;
+    public UserProfile getProfile() {
+        return profile;
     }
 
-    public void setState(JsonNode state) {
-        this.state = state;
+    public void setProfile(UserProfile profile) {
+        this.profile = profile;
     }
 }
