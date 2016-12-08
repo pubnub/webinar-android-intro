@@ -8,6 +8,7 @@ import android.util.Log;
 import com.pubnub.api.PNConfiguration;
 import com.pubnub.api.PubNub;
 import com.pubnub.api.callbacks.SubscribeCallback;
+import com.pubnub.api.enums.PNLogVerbosity;
 import com.pubnub.api.models.consumer.PNStatus;
 import com.pubnub.api.models.consumer.pubsub.PNMessageResult;
 import com.pubnub.api.models.consumer.pubsub.PNPresenceEventResult;
@@ -50,6 +51,8 @@ public class PubNubService extends Service {
             pnConfiguration.setSubscribeKey("demo-36");
             pnConfiguration.setPublishKey("demo-36");
             pnConfiguration.setSecure(false);
+            pnConfiguration.setLogVerbosity(PNLogVerbosity.BODY);
+
             pubnub = new PubNub(pnConfiguration);
             addPubNubListener();
         }
