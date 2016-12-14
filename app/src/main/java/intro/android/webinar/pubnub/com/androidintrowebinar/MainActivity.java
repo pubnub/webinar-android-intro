@@ -24,8 +24,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.gson.JsonObject;
 import com.pubnub.api.callbacks.PNCallback;
 import com.pubnub.api.enums.PNStatusCategory;
 import com.pubnub.api.models.consumer.PNPublishResult;
@@ -42,7 +41,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -239,11 +237,10 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-    private ObjectNode createMessage(String message) {
-        JsonNodeFactory factory = JsonNodeFactory.instance;
-        ObjectNode payload = factory.objectNode();
-        payload.put("text", message);
-        payload.put("sender", pubnubService.getPubNub().getConfiguration().getUuid());
+    private JsonObject createMessage(String message) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("text", message);
+        payload.addProperty("sender", pubnubService.getPubNub().getConfiguration().getUuid());
 
         return payload;
     }
@@ -369,7 +366,7 @@ public class MainActivity extends AppCompatActivity {
 
                                 if (!occupant.getUuid().equals(pubnubService.getPubNub().getConfiguration().getUuid())) {
                                     updateBuddyList(ACTION_ADD, occupant.getUuid(),
-                                            new UserProfile(occupant.getUuid(), (LinkedHashMap) occupant.getState()));
+                                            new UserProfile(occupant.getUuid(), occupant.getState()));
                                 }
                             }
                         }
@@ -418,14 +415,13 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private ObjectNode createState() {
-        JsonNodeFactory factory = JsonNodeFactory.instance;
-        ObjectNode payload = factory.objectNode();
+    private JsonObject createState() {
+        JsonObject payload = new JsonObject();
 
         if (profile != null) {
-            payload.put("location", profile.getLocation());
-            payload.put("fullname", profile.getFullname());
-            payload.put("language", profile.getLanguage());
+            payload.addProperty("location", profile.getLocation());
+            payload.addProperty("fullname", profile.getFullname());
+            payload.addProperty("language", profile.getLanguage());
         }
 
         return payload;

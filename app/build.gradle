@@ -39,6 +39,6 @@ dependencies {
     compile 'com.android.support:design:23.0.0'
     testCompile 'junit:junit:4.12'
 
-    compile group: 'com.pubnub', name: 'pubnub', version: '4.2.0'
+    compile group: 'com.pubnub', name: 'pubnub-gson', version: '4.3.0'
 }
 

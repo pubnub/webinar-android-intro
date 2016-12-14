@@ -1,6 +1,6 @@
 package intro.android.webinar.pubnub.com.androidintrowebinar;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.google.gson.JsonElement;
 import com.pubnub.api.models.consumer.pubsub.PNMessageResult;
 
 import java.io.Serializable;
@@ -16,17 +16,17 @@ public class ChatMessage implements Serializable {
     private String text;
 
 
-    public ChatMessage(String channel, Long publishTT, JsonNode json) {
+    public ChatMessage(String channel, Long publishTT, JsonElement json) {
         this.setChannel(channel);
         this.setPublishTT(publishTT);
 
         if (json != null) {
-            if (json.get("sender") != null) {
-                this.setSender(json.get("sender").asText());
+            if (json.getAsJsonObject().get("sender") != null) {
+                this.setSender(json.getAsJsonObject().get("sender").getAsString());
             }
 
-            if (json.get("text") != null) {
-                this.setText(json.get("text").asText());
+            if (json.getAsJsonObject().get("text") != null) {
+                this.setText(json.getAsJsonObject().get("text").getAsString());
             }
         }
     }
@@ -34,8 +34,8 @@ public class ChatMessage implements Serializable {
     public ChatMessage(PNMessageResult message) {
         this.setChannel(message.getChannel());
         this.setPublishTT(message.getTimetoken());
-        this.setSender(((JsonNode)message.getMessage()).get("sender").asText());
-        this.setText(((JsonNode)message.getMessage()).get("text").asText());
+        this.setSender(message.getMessage().getAsJsonObject().get("sender").getAsString());
+        this.setText(message.getMessage().getAsJsonObject().get("text").getAsString());
     }
 
     public String getChannel() {
